@@ -42,17 +42,17 @@ The pipeline executes agents in the following order:
 - **Error Handling**: Graceful failure handling with context logging
 - **Pipeline Orchestration**: Sequential execution with status tracking
 
-### Planned
+### In Progress
 
-- EDA with automated plotting
-- Feature engineering and transformation
-- Statistical analysis and hypothesis testing
-- Model architecture selection
-- Hyperparameter optimization
+- EDA with automated plotting - V1.0, working but needs change
+- Feature engineering and transformation - working
+- Statistical analysis and hypothesis testing - errors in calculation, need to refer back to data pre-processing
+- Model architecture selection - should work after previous
+- Hyperparameter optimization - does not work, pipeline stops here
 - Model validation and metrics
 - Insight synthesis with google/flan-t5-large
 - Visualization compilation
-- Final PDF report generation
+- Final PDF report generation - working
 
 ## Installation
 
@@ -255,4 +255,5 @@ For issues and questions:
 1. Check the logs in `logs/pipeline.log`
 2. Verify Kaggle credentials in `.env`
 3. Run `python test_pipeline.py` to diagnose issues
+
 4. Check the context file at `context/context_output.json` 
