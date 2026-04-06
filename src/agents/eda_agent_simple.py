@@ -154,6 +154,10 @@ class EDAAgent:
         data = safe_read_csv(file_path)
         if data is None:
             raise ValueError(f"Could not read CSV file (tried multiple encodings): {file_path}")
+        # Sample large datasets to keep EDA fast
+        if len(data) > 50_000:
+            data = data.sample(n=50_000, random_state=42).reset_index(drop=True)
+            self.logger.info(f"Sampled 50000 rows for EDA")
         self.logger.info(f"Analyzing file: {file_path} with {len(data)} rows and {len(data.columns)} columns")
         
         # Generate summary statistics

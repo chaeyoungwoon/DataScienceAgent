@@ -175,11 +175,19 @@ class ModelValidationAgent:
         # Prepare data
         X = data.iloc[:, :-1].select_dtypes(include=[np.number])
         y = data.iloc[:, -1]
-        
+
         # Handle missing values
         X = X.fillna(X.mean())
         y = y.fillna(y.mode()[0] if model_info['task_type'] == 'classification' else y.mean())
-        
+
+        # Cap dataset size for speed
+        MAX_ROWS = 15_000
+        if len(X) > MAX_ROWS:
+            idx = np.random.RandomState(42).choice(len(X), MAX_ROWS, replace=False)
+            X = X.iloc[idx].reset_index(drop=True)
+            y = y.iloc[idx].reset_index(drop=True)
+            self.logger.info(f"Sampled {MAX_ROWS} rows for model validation")
+
         # Split data — stratify only if each class has enough samples
         stratify = None
         if model_info['task_type'] == 'classification':

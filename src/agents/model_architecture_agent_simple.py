@@ -217,35 +217,43 @@ class ModelArchitectureAgent:
         # Prepare data
         X = data.iloc[:, :-1]  # All features except last
         y = data.iloc[:, -1]   # Last column as target
-        
+
         # Remove any remaining non-numeric columns
         X = X.select_dtypes(include=[np.number])
-        
+
         if len(X.columns) == 0:
             raise ValueError("No numeric features available for modeling")
-        
+
         # Handle missing values
         X = X.fillna(X.mean())
         y = y.fillna(y.mode()[0] if task_type == 'classification' else y.mean())
-        
-        # Define models based on task type
+
+        # Cap dataset size for speed — sample up to 15k rows
+        MAX_ROWS = 15_000
+        if len(X) > MAX_ROWS:
+            idx = np.random.RandomState(42).choice(len(X), MAX_ROWS, replace=False)
+            X = X.iloc[idx].reset_index(drop=True)
+            y = y.iloc[idx].reset_index(drop=True)
+            self.logger.info(f"Sampled {MAX_ROWS} rows from {len(data)} for model selection")
+
+        n_folds = 3 if len(X) > 5_000 else 5
+
+        # Define models — no SVM (too slow on large data)
         if task_type == 'classification':
             models = {
-                'Random Forest': RandomForestClassifier(n_estimators=100, random_state=42),
-                'Logistic Regression': LogisticRegression(random_state=42, max_iter=1000),
-                'SVM': SVC(random_state=42),
-                'Neural Network': MLPClassifier(hidden_layer_sizes=(100, 50), random_state=42, max_iter=500)
+                'Random Forest': RandomForestClassifier(n_estimators=50, random_state=42, n_jobs=-1),
+                'Logistic Regression': LogisticRegression(random_state=42, max_iter=1000, n_jobs=-1),
+                'Neural Network': MLPClassifier(hidden_layer_sizes=(64, 32), random_state=42, max_iter=200),
             }
             scoring = 'accuracy'
         else:
             models = {
-                'Random Forest': RandomForestRegressor(n_estimators=100, random_state=42),
-                'Linear Regression': LinearRegression(),
-                'SVR': SVR(),
-                'Neural Network': MLPRegressor(hidden_layer_sizes=(100, 50), random_state=42, max_iter=500)
+                'Random Forest': RandomForestRegressor(n_estimators=50, random_state=42, n_jobs=-1),
+                'Linear Regression': LinearRegression(n_jobs=-1),
+                'Neural Network': MLPRegressor(hidden_layer_sizes=(64, 32), random_state=42, max_iter=200),
             }
             scoring = 'r2'
-        
+
         # Compare models using cross-validation
         comparison = {
             'task_type': task_type,
@@ -254,11 +262,10 @@ class ModelArchitectureAgent:
             'best_model': None,
             'best_score': -1
         }
-        
+
         for name, model in models.items():
             try:
-                # Use 5-fold cross-validation
-                scores = cross_val_score(model, X, y, cv=5, scoring=scoring)
+                scores = cross_val_score(model, X, y, cv=n_folds, scoring=scoring, n_jobs=-1)
                 comparison['cv_scores'][name] = {
                     'mean_score': scores.mean(),
                     'std_score': scores.std(),
