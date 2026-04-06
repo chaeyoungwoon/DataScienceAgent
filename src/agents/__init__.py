@@ -1,35 +1,47 @@
 """
 Specialized agents for the Data Science Agent Swarm.
 
-This package contains all the specialized agent implementations for different
-aspects of data science research, including data discovery, analysis,
-modeling, and communication.
+Agents are imported lazily to avoid triggering heavy dependencies
+(kaggle, sentence-transformers, torch) at package import time.
 """
-
-from .dataset_discovery_agent import DatasetDiscoveryAgent
-from .data_quality_agent import DataQualityAgent
-from .data_acquisition_agent import DataAcquisitionAgent
-from .eda_agent_simple import ExploratoryDataAnalysisAgent
-from .statistical_analysis_agent_simple import StatisticalAnalysisAgent
-from .feature_engineering_agent_simple import FeatureEngineeringAgent
-from .model_architecture_agent_simple import ModelArchitectureAgent
-from .hyperparameter_optimization_agent_simple import HyperparameterOptimizationAgent
-from .model_validation_agent_simple import ModelValidationAgent
-from .insight_synthesis_agent_simple import InsightSynthesisAgent
-from .visualization_agent_simple import VisualizationAgent
-from .documentation_agent import DocumentationAgent
 
 __all__ = [
     'DatasetDiscoveryAgent',
-    'DataQualityAgent', 
     'DataAcquisitionAgent',
-    'ExploratoryDataAnalysisAgent',
-    'StatisticalAnalysisAgent',
+    'DataQualityAgent',
+    'DocumentationAgent',
+    'EDAAgent',
     'FeatureEngineeringAgent',
+    'StatisticalAnalysisAgent',
     'ModelArchitectureAgent',
     'HyperparameterOptimizationAgent',
     'ModelValidationAgent',
     'InsightSynthesisAgent',
     'VisualizationAgent',
-    'DocumentationAgent'
-] 
+    'FinalReportGenerator',
+]
+
+
+def __getattr__(name):
+    """Lazy import so heavy deps (kaggle, torch) are only loaded when the agent is used."""
+    _map = {
+        'DatasetDiscoveryAgent':           ('dataset_discovery_agent',                'DatasetDiscoveryAgent'),
+        'DataAcquisitionAgent':            ('data_acquisition_agent',                 'DataAcquisitionAgent'),
+        'DataQualityAgent':                ('data_quality_agent',                     'DataQualityAgent'),
+        'DocumentationAgent':              ('documentation_agent',                    'DocumentationAgent'),
+        'EDAAgent':                        ('eda_agent_simple',                       'EDAAgent'),
+        'FeatureEngineeringAgent':         ('feature_engineering_agent_simple',       'FeatureEngineeringAgent'),
+        'StatisticalAnalysisAgent':        ('statistical_analysis_agent_simple',      'StatisticalAnalysisAgent'),
+        'ModelArchitectureAgent':          ('model_architecture_agent_simple',        'ModelArchitectureAgent'),
+        'HyperparameterOptimizationAgent': ('hyperparameter_optimization_agent_simple', 'HyperparameterOptimizationAgent'),
+        'ModelValidationAgent':            ('model_validation_agent_simple',          'ModelValidationAgent'),
+        'InsightSynthesisAgent':           ('insight_synthesis_agent_simple',         'InsightSynthesisAgent'),
+        'VisualizationAgent':              ('visualization_agent_simple',             'VisualizationAgent'),
+        'FinalReportGenerator':            ('final_report_generator',                 'FinalReportGenerator'),
+    }
+    if name in _map:
+        module_name, class_name = _map[name]
+        import importlib
+        mod = importlib.import_module(f'.{module_name}', package=__name__)
+        return getattr(mod, class_name)
+    raise AttributeError(f"module 'src.agents' has no attribute {name!r}")

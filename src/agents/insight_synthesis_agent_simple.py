@@ -13,9 +13,10 @@ from typing import Dict, Any, List, Optional
 from pathlib import Path
 
 from src.core.context_manager import (
-    read_context, write_context, log_step, 
+    read_context, write_context, log_step,
     update_context_chain, get_context_chain_data
 )
+from src.core.utils import safe_json_convert
 
 class InsightSynthesisAgent:
     """
@@ -81,7 +82,9 @@ class InsightSynthesisAgent:
             
             # Generate overall conclusions
             synthesis_results['overall_conclusions'] = self._generate_overall_conclusions(synthesis_results)
-            
+
+            synthesis_results = safe_json_convert(synthesis_results)
+
             # Update context
             update_context_chain(context, 'insight_synthesis', synthesis_results)
             

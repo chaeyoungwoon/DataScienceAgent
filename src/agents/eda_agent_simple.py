@@ -17,9 +17,10 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 
 from src.core.context_manager import (
-    read_context, write_context, log_step, 
+    read_context, write_context, log_step,
     update_context_chain, get_context_chain_data
 )
+from src.core.utils import safe_json_convert
 
 class EDAAgent:
     """
@@ -106,7 +107,7 @@ class EDAAgent:
                 eda_results['overall_summary'] = self._generate_overall_summary(eda_results)
             
             # Convert numpy types for JSON serialization
-            eda_results = self._convert_numpy_types(eda_results)
+            eda_results = safe_json_convert(eda_results)
             
             # Update context
             update_context_chain(context, 'eda', eda_results)

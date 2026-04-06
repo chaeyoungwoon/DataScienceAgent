@@ -1,0 +1,32 @@
+# Secrets
+.env
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.venv/
+venv/
+env/
+*.egg-info/
+dist/
+build/
+
+# Generated pipeline artifacts
+context/context_output.json
+data/raw/
+data/cleaned/
+data/processed/
+output/
+logs/
+.cache/
+
+# HuggingFace model cache
+.cache/
+
+# macOS
+.DS_Store
+
+# IDE
+.vscode/
+.idea/

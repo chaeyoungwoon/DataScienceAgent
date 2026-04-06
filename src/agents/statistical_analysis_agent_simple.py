@@ -17,9 +17,10 @@ from scipy import stats
 from scipy.stats import pearsonr, spearmanr, ttest_ind, f_oneway
 
 from src.core.context_manager import (
-    read_context, write_context, log_step, 
+    read_context, write_context, log_step,
     update_context_chain, get_context_chain_data
 )
+from src.core.utils import safe_json_convert
 
 class StatisticalAnalysisAgent:
     """
@@ -50,12 +51,17 @@ class StatisticalAnalysisAgent:
             # Read context
             context = read_context()
             
-            # Get processed dataset paths from feature engineering
-            feature_data = get_context_chain_data(context, 'feature_engineering')
-            if not feature_data or 'processed_file_paths' not in feature_data:
-                raise ValueError("No processed file paths found in context")
-            
-            processed_file_paths = feature_data['processed_file_paths']
+            # Run statistical analysis on cleaned (pre-scaling) data for meaningful results
+            quality_data = get_context_chain_data(context, 'data_quality')
+            if not quality_data or 'cleaned_file_paths' not in quality_data:
+                # Fall back to processed data if cleaned data unavailable
+                feature_data = get_context_chain_data(context, 'feature_engineering')
+                if not feature_data or 'processed_file_paths' not in feature_data:
+                    raise ValueError("No file paths found in context for statistical analysis")
+                processed_file_paths = feature_data['processed_file_paths']
+            else:
+                processed_file_paths = quality_data['cleaned_file_paths']
+
             self.logger.info(f"Starting statistical analysis for {len(processed_file_paths)} files")
             
             # Process each file
@@ -100,7 +106,7 @@ class StatisticalAnalysisAgent:
                 stats_results['overall_summary'] = self._generate_overall_summary(stats_results)
             
             # Convert numpy types for JSON serialization
-            stats_results = self._convert_numpy_types(stats_results)
+            stats_results = safe_json_convert(stats_results)
             
             # Update context
             update_context_chain(context, 'statistical_analysis', stats_results)
@@ -325,8 +331,14 @@ class StatisticalAnalysisAgent:
             
             f.write(f"Significant Relationships:\n")
             for test in results['significant_tests']:
-                f.write(f"- {test['test_type']}: {test.get('variable1', 'N/A')} vs {test.get('variable2', 'N/A')}\n")
-                f.write(f"  p-value: {test['p_value']:.4f}, Effect size: {test.get('effect_size', 'N/A'):.4f}\n")
+                v1 = test.get('variable1') or test.get('dependent_variable', 'N/A')
+                v2 = test.get('variable2') or test.get('independent_variable', 'N/A')
+                f.write(f"- {test['test_type']}: {v1} vs {v2}\n")
+                p_val = test.get('p_value')
+                effect = test.get('effect_size')
+                p_str = f"{p_val:.4f}" if isinstance(p_val, (int, float)) else str(p_val)
+                e_str = f"{effect:.4f}" if isinstance(effect, (int, float)) else str(effect) if effect is not None else 'N/A'
+                f.write(f"  p-value: {p_str}, Effect size: {e_str}\n")
             
             f.write(f"\nAnalyzed Files:\n")
             for file_analysis in results['files_analyzed']:

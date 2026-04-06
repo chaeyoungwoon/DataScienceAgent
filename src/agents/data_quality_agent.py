@@ -16,9 +16,10 @@ import numpy as np
 from sklearn.impute import SimpleImputer
 
 from src.core.context_manager import (
-    read_context, write_context, log_step, 
+    read_context, write_context, log_step,
     update_context_chain, get_context_chain_data
 )
+from src.core.utils import safe_json_convert
 
 class DataQualityAgent:
     """
@@ -93,7 +94,7 @@ class DataQualityAgent:
             quality_results['quality_metrics'] = self._calculate_overall_metrics(quality_results['files_processed'])
             
             # Convert numpy types to native Python types for JSON serialization
-            quality_results = self._convert_numpy_types(quality_results)
+            quality_results = safe_json_convert(quality_results)
             
             # Update context
             update_context_chain(context, 'data_quality', quality_results)
@@ -292,27 +293,25 @@ class DataQualityAgent:
         """
         cleaned_data = data.copy()
         
+        cols_to_drop = []
         for column in data.columns:
-            missing_count = quality_analysis['missing_values'][column]
-            missing_percentage = (missing_count / len(data)) * 100
-            
+            missing_count = quality_analysis['missing_values'].get(column, 0)
+            missing_percentage = (missing_count / len(data)) * 100 if len(data) > 0 else 0
+
             if missing_count > 0:
                 if missing_percentage > 50:
-                    # If more than 50% missing, drop the column
-                    cleaned_data = cleaned_data.drop(columns=[column])
-                    self.logger.info(f"Dropped column '{column}' due to {missing_percentage:.1f}% missing values")
+                    cols_to_drop.append(column)
+                    self.logger.info(f"Dropping column '{column}' ({missing_percentage:.1f}% missing)")
                 else:
-                    # Impute missing values based on data type
-                    if data[column].dtype in ['int64', 'float64']:
-                        # Numeric column - use median
-                        imputer = SimpleImputer(strategy='median')
-                        cleaned_data[column] = imputer.fit_transform(cleaned_data[[column]])
-                    else:
-                        # Categorical column - use mode
-                        imputer = SimpleImputer(strategy='most_frequent')
-                        cleaned_data[column] = imputer.fit_transform(cleaned_data[[column]])
-                    
-                    self.logger.info(f"Imputed {missing_count} missing values in column '{column}'")
+                    if column not in cleaned_data.columns:
+                        continue
+                    strategy = 'median' if data[column].dtype in ['int64', 'float64'] else 'most_frequent'
+                    imputer = SimpleImputer(strategy=strategy)
+                    cleaned_data[column] = imputer.fit_transform(cleaned_data[[column]])
+                    self.logger.info(f"Imputed {missing_count} missing values in '{column}'")
+
+        if cols_to_drop:
+            cleaned_data = cleaned_data.drop(columns=cols_to_drop)
         
         return cleaned_data
     
@@ -418,7 +417,7 @@ class DataQualityAgent:
         # Save full results
         results_file = self.output_dir / "quality_results.json"
         with open(results_file, 'w') as f:
-            json.dump(results, f, indent=2)
+            json.dump(results, f, indent=2, default=str)
         
         # Save summary
         summary_file = self.output_dir / "quality_summary.txt"

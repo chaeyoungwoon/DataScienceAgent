@@ -11,6 +11,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import Dict, Any, Optional
 
+from src.core.utils import safe_json_convert
+
 CONTEXT_PATH = "context/context_output.json"
 
 def read_context() -> Dict[str, Any]:
@@ -64,9 +66,10 @@ def write_context(context: Dict[str, Any]) -> None:
     context_dir.mkdir(parents=True, exist_ok=True)
     
     try:
+        safe_context = safe_json_convert(context)
         with open(CONTEXT_PATH, "w") as f:
-            json.dump(context, f, indent=2)
-    except IOError as e:
+            json.dump(safe_context, f, indent=2)
+    except (IOError, TypeError) as e:
         print(f"Error writing context file: {e}")
 
 def log_step(context: Dict[str, Any], agent_name: str, message: str) -> None:

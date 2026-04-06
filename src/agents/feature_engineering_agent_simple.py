@@ -17,9 +17,10 @@ from sklearn.preprocessing import StandardScaler, LabelEncoder, OneHotEncoder
 from sklearn.compose import ColumnTransformer
 
 from src.core.context_manager import (
-    read_context, write_context, log_step, 
+    read_context, write_context, log_step,
     update_context_chain, get_context_chain_data
 )
+from src.core.utils import safe_json_convert
 
 class FeatureEngineeringAgent:
     """
@@ -94,7 +95,7 @@ class FeatureEngineeringAgent:
                     })
             
             # Convert numpy types for JSON serialization
-            feature_results = self._convert_numpy_types(feature_results)
+            feature_results = safe_json_convert(feature_results)
             
             # Update context
             update_context_chain(context, 'feature_engineering', feature_results)
@@ -231,14 +232,16 @@ class FeatureEngineeringAgent:
         # Create interaction features for numeric columns
         numeric_cols = feature_info['numeric_columns']
         if len(numeric_cols) >= 2:
-            # Create ratio features
-            for i in range(len(numeric_cols)):
-                for j in range(i + 1, len(numeric_cols)):
+            # Create ratio features (limit to avoid feature explosion)
+            for i in range(min(len(numeric_cols), 3)):
+                for j in range(i + 1, min(len(numeric_cols), 3)):
                     col1, col2 = numeric_cols[i], numeric_cols[j]
-                    if data[col2].abs().min() > 0:  # Avoid division by zero
-                        ratio_name = f"{col1}_div_{col2}"
-                        data[ratio_name] = data[col1] / data[col2]
-                        new_features.append(ratio_name)
+                    ratio_name = f"{col1}_div_{col2}"
+                    with np.errstate(divide='ignore', invalid='ignore'):
+                        ratio = np.where(data[col2] != 0, data[col1] / data[col2], 0.0)
+                    data[ratio_name] = np.clip(ratio, -1e6, 1e6)
+                    data[ratio_name] = data[ratio_name].fillna(0.0)
+                    new_features.append(ratio_name)
         
         # Create polynomial features for important numeric columns
         if numeric_cols:
@@ -254,7 +257,11 @@ class FeatureEngineeringAgent:
         """Save processed data to file."""
         file_name = Path(original_path).stem
         processed_path = self.processed_data_dir / f"{file_name}_processed.csv"
-        
+
+        # Ensure no inf/nan values remain before saving
+        data = data.replace([np.inf, -np.inf], np.nan)
+        data = data.fillna(0.0)
+
         data.to_csv(processed_path, index=False)
         self.logger.info(f"Saved processed data to {processed_path}")
         

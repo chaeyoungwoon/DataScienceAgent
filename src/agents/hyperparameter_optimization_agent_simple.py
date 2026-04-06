@@ -13,16 +13,17 @@ from typing import Dict, Any, List, Optional
 from pathlib import Path
 import pandas as pd
 import numpy as np
-from sklearn.model_selection import GridSearchCV, RandomizedSearchCV
+from sklearn.model_selection import RandomizedSearchCV
 from sklearn.ensemble import RandomForestClassifier, RandomForestRegressor
 from sklearn.linear_model import LogisticRegression, LinearRegression
 from sklearn.svm import SVC, SVR
 from sklearn.neural_network import MLPClassifier, MLPRegressor
 
 from src.core.context_manager import (
-    read_context, write_context, log_step, 
+    read_context, write_context, log_step,
     update_context_chain, get_context_chain_data
 )
+from src.core.utils import safe_json_convert, find_processed_file
 
 class HyperparameterOptimizationAgent:
     """
@@ -72,24 +73,19 @@ class HyperparameterOptimizationAgent:
                 'performance_improvements': {}
             }
             
+            feature_data = get_context_chain_data(context, 'feature_engineering')
+            processed_file_paths = feature_data.get('processed_file_paths', []) if feature_data else []
+
             for file_path, model_info in recommended_models.items():
                 try:
-                    # Get processed data for this model
-                    feature_data = get_context_chain_data(context, 'feature_engineering')
-                    if not feature_data or 'processed_file_paths' not in feature_data:
+                    # file_path IS the processed file path (set by model_architecture agent)
+                    # Use it directly or do a fuzzy match as fallback
+                    processed_file = find_processed_file(file_path, processed_file_paths) or file_path
+
+                    if not Path(processed_file).exists():
+                        self.logger.warning(f"Processed file not found: {processed_file}")
                         continue
-                    
-                    # Find the corresponding processed file
-                    processed_file = None
-                    for processed_path in feature_data['processed_file_paths']:
-                        if Path(processed_path).stem.replace('_processed', '') in file_path:
-                            processed_file = processed_path
-                            break
-                    
-                    if not processed_file:
-                        self.logger.warning(f"No processed file found for {file_path}")
-                        continue
-                    
+
                     optimization_result = self._optimize_model(processed_file, model_info)
                     optimization_results['models_optimized'].append(optimization_result)
                     optimization_results['successful_optimizations'] += 1
@@ -114,7 +110,7 @@ class HyperparameterOptimizationAgent:
                 optimization_results['overall_summary'] = self._generate_overall_summary(optimization_results)
             
             # Convert numpy types for JSON serialization
-            optimization_results = self._convert_numpy_types(optimization_results)
+            optimization_results = safe_json_convert(optimization_results)
             
             # Update context
             update_context_chain(context, 'hyperparameter_optimization', optimization_results)
@@ -194,82 +190,64 @@ class HyperparameterOptimizationAgent:
         }
     
     def _get_parameter_grid(self, model_name: str, task_type: str) -> Dict[str, List]:
-        """Get parameter grid for hyperparameter optimization."""
+        """Get parameter distributions for randomized hyperparameter search."""
+        rf_params = {
+            'n_estimators': [50, 100, 200],
+            'max_depth': [5, 10, None],
+            'min_samples_split': [2, 5],
+            'min_samples_leaf': [1, 2],
+        }
+        nn_params = {
+            'hidden_layer_sizes': [(50,), (100,), (50, 25)],
+            'alpha': [0.0001, 0.001],
+            'learning_rate': ['constant', 'adaptive'],
+        }
         if task_type == 'classification':
-            if model_name == 'Random Forest':
-                return {
-                    'n_estimators': [50, 100, 200],
-                    'max_depth': [5, 10, 15, None],
-                    'min_samples_split': [2, 5, 10],
-                    'min_samples_leaf': [1, 2, 4]
-                }
-            elif model_name == 'Logistic Regression':
-                return {
-                    'C': [0.1, 1.0, 10.0],
-                    'penalty': ['l1', 'l2'],
-                    'solver': ['liblinear', 'saga']
-                }
-            elif model_name == 'SVM':
-                return {
-                    'C': [0.1, 1.0, 10.0],
-                    'kernel': ['rbf', 'linear'],
-                    'gamma': ['scale', 'auto']
-                }
-            elif model_name == 'Neural Network':
-                return {
-                    'hidden_layer_sizes': [(50,), (100,), (50, 25), (100, 50)],
-                    'alpha': [0.0001, 0.001, 0.01],
-                    'learning_rate': ['constant', 'adaptive']
-                }
-        else:  # Regression
-            if model_name == 'Random Forest':
-                return {
-                    'n_estimators': [50, 100, 200],
-                    'max_depth': [5, 10, 15, None],
-                    'min_samples_split': [2, 5, 10],
-                    'min_samples_leaf': [1, 2, 4]
-                }
-            elif model_name == 'Linear Regression':
-                return {}  # No hyperparameters to optimize
-            elif model_name == 'SVR':
-                return {
-                    'C': [0.1, 1.0, 10.0],
-                    'kernel': ['rbf', 'linear'],
-                    'gamma': ['scale', 'auto']
-                }
-            elif model_name == 'Neural Network':
-                return {
-                    'hidden_layer_sizes': [(50,), (100,), (50, 25), (100, 50)],
-                    'alpha': [0.0001, 0.001, 0.01],
-                    'learning_rate': ['constant', 'adaptive']
-                }
-        
-        return {}
+            return {
+                'Random Forest': rf_params,
+                'Logistic Regression': {'C': [0.1, 1.0, 10.0], 'solver': ['lbfgs', 'liblinear']},
+                'SVM': {'C': [0.1, 1.0, 10.0], 'kernel': ['rbf', 'linear'], 'gamma': ['scale', 'auto']},
+                'Neural Network': nn_params,
+            }.get(model_name, {})
+        else:
+            return {
+                'Random Forest': rf_params,
+                'Linear Regression': {},
+                'SVR': {'C': [0.1, 1.0, 10.0], 'kernel': ['rbf', 'linear'], 'gamma': ['scale', 'auto']},
+                'Neural Network': nn_params,
+            }.get(model_name, {})
     
     def _perform_optimization(self, X: pd.DataFrame, y: pd.Series, model_info: Dict[str, Any], param_grid: Dict[str, List]) -> tuple:
-        """Perform hyperparameter optimization using grid search."""
-        # Create base model
+        """Perform hyperparameter optimization using randomized search."""
         base_model = self._create_model(model_info['model_name'], model_info['task_type'])
-        
-        # Define scoring metric
         scoring = 'accuracy' if model_info['task_type'] == 'classification' else 'r2'
-        
-        # Perform grid search
-        if param_grid:
-            grid_search = GridSearchCV(
-                base_model,
-                param_grid,
-                cv=5,
-                scoring=scoring,
-                n_jobs=-1,
-                verbose=0
-            )
-            grid_search.fit(X, y)
-            
-            return grid_search.best_params_, grid_search.best_score_
-        else:
-            # No parameters to optimize, return default
-            return {}, model_info['cv_score']
+
+        if not param_grid:
+            return {}, float(model_info.get('cv_score', 0.0) or 0.0)
+
+        # Use min(5, n_samples//5) folds to avoid CV failures on small datasets
+        n_folds = max(2, min(5, len(X) // 10))
+        n_iter = min(10, self._param_grid_size(param_grid))
+
+        search = RandomizedSearchCV(
+            base_model,
+            param_grid,
+            n_iter=n_iter,
+            cv=n_folds,
+            scoring=scoring,
+            n_jobs=-1,
+            random_state=42,
+            error_score=0.0,
+        )
+        search.fit(X, y)
+        return search.best_params_, float(search.best_score_)
+
+    def _param_grid_size(self, param_grid: Dict[str, List]) -> int:
+        """Compute total combinations in a parameter grid."""
+        size = 1
+        for v in param_grid.values():
+            size *= len(v)
+        return size
     
     def _create_model(self, model_name: str, task_type: str):
         """Create a model instance based on name and task type."""

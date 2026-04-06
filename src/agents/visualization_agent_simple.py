@@ -17,9 +17,10 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 
 from src.core.context_manager import (
-    read_context, write_context, log_step, 
+    read_context, write_context, log_step,
     update_context_chain, get_context_chain_data
 )
+from src.core.utils import safe_json_convert
 
 class VisualizationAgent:
     """
@@ -101,7 +102,9 @@ class VisualizationAgent:
             # Generate overall visualization summary
             if visualization_results['successful_creations'] > 0:
                 visualization_results['overall_summary'] = self._generate_overall_summary(visualization_results)
-            
+
+            visualization_results = safe_json_convert(visualization_results)
+
             # Update context
             update_context_chain(context, 'visualization', visualization_results)
             
@@ -169,11 +172,13 @@ class VisualizationAgent:
                 agent_names.append(agent.replace('_', ' ').title())
         
         # Plot 1: Agent completion status
-        axes[0, 0].bar(range(len(agent_names)), agent_status, color=['green' if s == 1 else 'red' for s in agent_status])
+        if agent_names:
+            x_pos = range(len(agent_names))
+            axes[0, 0].bar(x_pos, agent_status, color=['green' if s == 1 else 'red' for s in agent_status])
+            axes[0, 0].set_xticks(list(x_pos))
+            axes[0, 0].set_xticklabels(agent_names, rotation=45, ha='right')
         axes[0, 0].set_title('Agent Completion Status')
         axes[0, 0].set_ylabel('Status (1=Success, 0=Failed)')
-        axes[0, 0].set_xticks(range(len(agent_names)))
-        axes[0, 0].set_xticklabels(agent_names, rotation=45, ha='right')
         
         # Plot 2: Data processing summary
         if 'data_quality' in pipeline_data:
@@ -300,35 +305,20 @@ class VisualizationAgent:
             f1_scores.append(metrics.get('f1_score', 0))
         
         if model_names:
-            x = range(len(model_names))
-            
-            # Plot 1: Accuracy comparison
-            axes[0, 0].bar(x, accuracy_scores, color='skyblue', alpha=0.7)
-            axes[0, 0].set_title('Model Accuracy Comparison')
-            axes[0, 0].set_ylabel('Accuracy')
-            axes[0, 0].set_xticks(x)
-            axes[0, 0].set_xticklabels(model_names, rotation=45, ha='right')
-            
-            # Plot 2: Precision comparison
-            axes[0, 1].bar(x, precision_scores, color='lightgreen', alpha=0.7)
-            axes[0, 1].set_title('Model Precision Comparison')
-            axes[0, 1].set_ylabel('Precision')
-            axes[0, 1].set_xticks(x)
-            axes[0, 1].set_xticklabels(model_names, rotation=45, ha='right')
-            
-            # Plot 3: Recall comparison
-            axes[1, 0].bar(x, recall_scores, color='lightcoral', alpha=0.7)
-            axes[1, 0].set_title('Model Recall Comparison')
-            axes[1, 0].set_ylabel('Recall')
-            axes[1, 0].set_xticks(x)
-            axes[1, 0].set_xticklabels(model_names, rotation=45, ha='right')
-            
-            # Plot 4: F1 Score comparison
-            axes[1, 1].bar(x, f1_scores, color='gold', alpha=0.7)
-            axes[1, 1].set_title('Model F1 Score Comparison')
-            axes[1, 1].set_ylabel('F1 Score')
-            axes[1, 1].set_xticks(x)
-            axes[1, 1].set_xticklabels(model_names, rotation=45, ha='right')
+            x = list(range(len(model_names)))
+            tick_labels = [m[:20] for m in model_names]  # truncate long names
+
+            for ax, scores, title, color, ylabel in [
+                (axes[0, 0], accuracy_scores,  'Accuracy',  'skyblue',    'Accuracy'),
+                (axes[0, 1], precision_scores, 'Precision', 'lightgreen', 'Precision'),
+                (axes[1, 0], recall_scores,    'Recall',    'lightcoral', 'Recall'),
+                (axes[1, 1], f1_scores,        'F1 Score',  'gold',       'F1 Score'),
+            ]:
+                ax.bar(x, scores, color=color, alpha=0.7)
+                ax.set_title(f'Model {title} Comparison')
+                ax.set_ylabel(ylabel)
+                ax.set_xticks(x)
+                ax.set_xticklabels(tick_labels, rotation=45, ha='right')
         
         plt.tight_layout()
         
@@ -408,10 +398,12 @@ class VisualizationAgent:
             conclusion_names = list(conclusions.keys())
             conclusion_values = [1 if v else 0 for v in conclusions.values()]
             
-            axes[1].bar(conclusion_names, conclusion_values, 
+            x_pos = list(range(len(conclusion_names)))
+            axes[1].bar(x_pos, conclusion_values,
                        color=['green' if v else 'red' for v in conclusion_values], alpha=0.7)
             axes[1].set_title('Overall Conclusions')
             axes[1].set_ylabel('Status (1=Success, 0=Failed)')
+            axes[1].set_xticks(x_pos)
             axes[1].set_xticklabels(conclusion_names, rotation=45, ha='right')
         
         plt.tight_layout()

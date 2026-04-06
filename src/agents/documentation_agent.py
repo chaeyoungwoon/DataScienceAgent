@@ -17,9 +17,10 @@ from transformers import BartTokenizer, BartForConditionalGeneration
 import torch
 
 from src.core.context_manager import (
-    read_context, write_context, log_step, 
+    read_context, write_context, log_step,
     update_context_chain, get_context_chain_data
 )
+from src.core.utils import safe_json_convert
 
 class DocumentationAgent:
     """
@@ -32,17 +33,23 @@ class DocumentationAgent:
     def __init__(self):
         """Initialize Documentation Agent."""
         self.logger = logging.getLogger(__name__)
-        
-        # Initialize BART model for summarization
+
+        # Load BART lazily — it's large (~400 MB); skip if unavailable
         self.model_name = "facebook/bart-large-cnn"
-        self.tokenizer = BartTokenizer.from_pretrained(self.model_name)
-        self.model = BartForConditionalGeneration.from_pretrained(self.model_name)
-        
+        self.tokenizer = None
+        self.model = None
+        try:
+            self.tokenizer = BartTokenizer.from_pretrained(self.model_name)
+            self.model = BartForConditionalGeneration.from_pretrained(self.model_name)
+            self.logger.info(f"BART model loaded: {self.model_name}")
+        except Exception as e:
+            self.logger.warning(f"BART model unavailable ({e}); using heuristic summaries")
+
         # Create output directories
         self.output_dir = Path("output/documentation_01")
         self.output_dir.mkdir(parents=True, exist_ok=True)
-        
-        self.logger.info(f"Documentation Agent initialized with model: {self.model_name}")
+
+        self.logger.info("Documentation Agent initialized")
     
     def execute(self) -> Dict[str, Any]:
         """
@@ -101,9 +108,12 @@ class DocumentationAgent:
             log_step(context, 'documentation', 
                     f"Generated documentation for {documentation_results['successful_documentations']} files")
             
+            # Convert numpy types before writing context
+            documentation_results = safe_json_convert(documentation_results)
+
             # Write updated context
             write_context(context)
-            
+
             # Save detailed results
             self._save_documentation_results(documentation_results)
             
@@ -173,7 +183,8 @@ class DocumentationAgent:
             Loaded DataFrame or None if failed
         """
         try:
-            full_path = Path("data/cleaned") / file_path
+            # cleaned_file_paths already contain the full relative path from project root
+            full_path = Path(file_path)
             if not full_path.exists():
                 raise FileNotFoundError(f"File not found: {full_path}")
             
@@ -312,30 +323,24 @@ class DocumentationAgent:
         Returns:
             Generated summary text
         """
+        if self.tokenizer is None or self.model is None:
+            return self._create_heuristic_summary(data, column_info)
+
         try:
-            # Create a text description of the dataset
             dataset_description = self._create_dataset_description(data, column_info)
-            
-            # Use BART to generate summary
             inputs = self.tokenizer(dataset_description, max_length=1024, truncation=True, return_tensors="pt")
-            
             with torch.no_grad():
                 summary_ids = self.model.generate(
-                    inputs["input_ids"], 
-                    max_length=150, 
-                    min_length=40, 
-                    length_penalty=2.0, 
-                    num_beams=4, 
-                    early_stopping=True
+                    inputs["input_ids"],
+                    max_length=150,
+                    min_length=40,
+                    length_penalty=2.0,
+                    num_beams=4,
+                    early_stopping=True,
                 )
-            
-            summary = self.tokenizer.decode(summary_ids[0], skip_special_tokens=True)
-            
-            return summary
-            
+            return self.tokenizer.decode(summary_ids[0], skip_special_tokens=True)
         except Exception as e:
             self.logger.warning(f"BART summarization failed: {e}")
-            # Fallback to heuristic summary
             return self._create_heuristic_summary(data, column_info)
     
     def _create_dataset_description(self, data: pd.DataFrame, column_info: List[Dict[str, Any]]) -> str:
@@ -421,25 +426,22 @@ class DocumentationAgent:
             if not all_summaries:
                 return "No dataset summaries available."
             
-            # Combine summaries
             combined_text = " ".join(all_summaries)
-            
-            # Use BART to generate overall summary
+
+            if self.tokenizer is None or self.model is None:
+                return combined_text[:500]
+
             inputs = self.tokenizer(combined_text, max_length=1024, truncation=True, return_tensors="pt")
-            
             with torch.no_grad():
                 summary_ids = self.model.generate(
-                    inputs["input_ids"], 
-                    max_length=200, 
-                    min_length=50, 
-                    length_penalty=2.0, 
-                    num_beams=4, 
-                    early_stopping=True
+                    inputs["input_ids"],
+                    max_length=200,
+                    min_length=50,
+                    length_penalty=2.0,
+                    num_beams=4,
+                    early_stopping=True,
                 )
-            
-            summary = self.tokenizer.decode(summary_ids[0], skip_special_tokens=True)
-            
-            return summary
+            return self.tokenizer.decode(summary_ids[0], skip_special_tokens=True)
             
         except Exception as e:
             self.logger.warning(f"Overall summary generation failed: {e}")
@@ -455,7 +457,7 @@ class DocumentationAgent:
         # Save full results
         results_file = self.output_dir / "documentation_results.json"
         with open(results_file, 'w') as f:
-            json.dump(results, f, indent=2)
+            json.dump(results, f, indent=2, default=str)
         
         # Save summary
         summary_file = self.output_dir / "documentation_summary.txt"
@@ -490,7 +492,7 @@ class DocumentationAgent:
                 filename = Path(doc['file_path']).stem + "_documentation.json"
                 doc_file = docs_dir / filename
                 with open(doc_file, 'w') as f:
-                    json.dump(doc, f, indent=2)
+                    json.dump(doc, f, indent=2, default=str)
         
         self.logger.info(f"Documentation results saved to {self.output_dir}")
 

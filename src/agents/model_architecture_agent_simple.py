@@ -22,9 +22,10 @@ from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_sc
 from sklearn.metrics import mean_squared_error, r2_score
 
 from src.core.context_manager import (
-    read_context, write_context, log_step, 
+    read_context, write_context, log_step,
     update_context_chain, get_context_chain_data
 )
+from src.core.utils import safe_json_convert
 
 class ModelArchitectureAgent:
     """
@@ -100,7 +101,7 @@ class ModelArchitectureAgent:
                 architecture_results['overall_summary'] = self._generate_overall_summary(architecture_results)
             
             # Convert numpy types for JSON serialization
-            architecture_results = self._convert_numpy_types(architecture_results)
+            architecture_results = safe_json_convert(architecture_results)
             
             # Update context
             update_context_chain(context, 'model_architecture', architecture_results)
@@ -281,7 +282,11 @@ class ModelArchitectureAgent:
     def _select_best_model(self, comparison: Dict[str, Any], task_type: str) -> Dict[str, Any]:
         """Select the best model based on cross-validation results."""
         best_model_name = comparison['best_model']
-        best_scores = comparison['cv_scores'][best_model_name]
+        if best_model_name is None:
+            # All models failed; default to Random Forest
+            best_model_name = 'Random Forest' if task_type == 'classification' else 'Random Forest'
+            comparison['best_model'] = best_model_name
+        best_scores = comparison['cv_scores'].get(best_model_name, {'mean_score': 0.0, 'std_score': 0.0})
         
         # Define model parameters based on the best model
         if task_type == 'classification':

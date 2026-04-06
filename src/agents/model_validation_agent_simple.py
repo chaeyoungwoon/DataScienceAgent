@@ -24,9 +24,10 @@ from sklearn.svm import SVC, SVR
 from sklearn.neural_network import MLPClassifier, MLPRegressor
 
 from src.core.context_manager import (
-    read_context, write_context, log_step, 
+    read_context, write_context, log_step,
     update_context_chain, get_context_chain_data
 )
+from src.core.utils import safe_json_convert, find_processed_file
 
 class ModelValidationAgent:
     """
@@ -76,29 +77,22 @@ class ModelValidationAgent:
                 'model_performance': {}
             }
             
+            feature_data = get_context_chain_data(context, 'feature_engineering')
+            processed_file_paths = feature_data.get('processed_file_paths', []) if feature_data else []
+            architecture_data = get_context_chain_data(context, 'model_architecture')
+
             for file_path, optimized_params in optimized_models.items():
                 try:
-                    # Get processed data for this model
-                    feature_data = get_context_chain_data(context, 'feature_engineering')
-                    if not feature_data or 'processed_file_paths' not in feature_data:
+                    # file_path IS the processed file path; use direct match or fuzzy fallback
+                    processed_file = find_processed_file(file_path, processed_file_paths) or file_path
+
+                    if not Path(processed_file).exists():
+                        self.logger.warning(f"Processed file not found: {processed_file}")
                         continue
-                    
-                    # Find the corresponding processed file
-                    processed_file = None
-                    for processed_path in feature_data['processed_file_paths']:
-                        if Path(processed_path).stem.replace('_processed', '') in file_path:
-                            processed_file = processed_path
-                            break
-                    
-                    if not processed_file:
-                        self.logger.warning(f"No processed file found for {file_path}")
-                        continue
-                    
-                    # Get model info from architecture
-                    architecture_data = get_context_chain_data(context, 'model_architecture')
+
                     if not architecture_data or 'recommended_models' not in architecture_data:
                         continue
-                    
+
                     model_info = architecture_data['recommended_models'].get(file_path, {})
                     if not model_info:
                         continue
@@ -127,7 +121,7 @@ class ModelValidationAgent:
                 validation_results['overall_summary'] = self._generate_overall_summary(validation_results)
             
             # Convert numpy types for JSON serialization
-            validation_results = self._convert_numpy_types(validation_results)
+            validation_results = safe_json_convert(validation_results)
             
             # Update context
             update_context_chain(context, 'model_validation', validation_results)
@@ -184,10 +178,20 @@ class ModelValidationAgent:
         X = X.fillna(X.mean())
         y = y.fillna(y.mode()[0] if model_info['task_type'] == 'classification' else y.mean())
         
-        # Split data
-        X_train, X_test, y_train, y_test = train_test_split(
-            X, y, test_size=0.2, random_state=42, stratify=y if model_info['task_type'] == 'classification' else None
-        )
+        # Split data — stratify only if each class has enough samples
+        stratify = None
+        if model_info['task_type'] == 'classification':
+            min_class_count = y.value_counts().min()
+            if min_class_count >= 2:
+                stratify = y
+        try:
+            X_train, X_test, y_train, y_test = train_test_split(
+                X, y, test_size=0.2, random_state=42, stratify=stratify
+            )
+        except ValueError:
+            X_train, X_test, y_train, y_test = train_test_split(
+                X, y, test_size=0.2, random_state=42
+            )
         
         # Create and train model
         model = self._create_model(model_info['model_name'], model_info['task_type'], optimized_params)
@@ -215,26 +219,30 @@ class ModelValidationAgent:
     
     def _create_model(self, model_name: str, task_type: str, optimized_params: Dict[str, Any]):
         """Create a model instance with optimized parameters."""
+        # JSON deserializes tuples as lists; convert hidden_layer_sizes back to tuple for MLP
+        params = dict(optimized_params)
+        if 'hidden_layer_sizes' in params and isinstance(params['hidden_layer_sizes'], list):
+            params['hidden_layer_sizes'] = tuple(params['hidden_layer_sizes'])
+
         if task_type == 'classification':
             if model_name == 'Random Forest':
-                return RandomForestClassifier(**optimized_params, random_state=42)
+                return RandomForestClassifier(**params, random_state=42)
             elif model_name == 'Logistic Regression':
-                return LogisticRegression(**optimized_params, random_state=42, max_iter=1000)
+                return LogisticRegression(**params, random_state=42, max_iter=1000)
             elif model_name == 'SVM':
-                return SVC(**optimized_params, random_state=42)
+                return SVC(**params, random_state=42)
             elif model_name == 'Neural Network':
-                return MLPClassifier(**optimized_params, random_state=42, max_iter=500)
+                return MLPClassifier(**params, random_state=42, max_iter=500)
         else:  # Regression
             if model_name == 'Random Forest':
-                return RandomForestRegressor(**optimized_params, random_state=42)
+                return RandomForestRegressor(**params, random_state=42)
             elif model_name == 'Linear Regression':
-                return LinearRegression(**optimized_params)
+                return LinearRegression()
             elif model_name == 'SVR':
-                return SVR(**optimized_params)
+                return SVR(**params)
             elif model_name == 'Neural Network':
-                return MLPRegressor(**optimized_params, random_state=42, max_iter=500)
-        
-        # Default fallback
+                return MLPRegressor(**params, random_state=42, max_iter=500)
+
         return RandomForestClassifier(random_state=42) if task_type == 'classification' else RandomForestRegressor(random_state=42)
     
     def _calculate_metrics(self, y_true: np.ndarray, y_pred: np.ndarray, task_type: str) -> Dict[str, float]:
