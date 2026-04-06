@@ -34,6 +34,8 @@ def safe_json_convert(obj: Any) -> Any:
         return [safe_json_convert(row) for row in obj.to_dict('records')]
     elif isinstance(obj, np.dtype):
         return str(obj)
+    elif isinstance(obj, pd.api.extensions.ExtensionDtype):
+        return str(obj)
     elif isinstance(obj, np.bool_):
         return bool(obj)
     else:

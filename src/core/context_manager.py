@@ -65,12 +65,9 @@ def write_context(context: Dict[str, Any]) -> None:
     context_dir = Path(CONTEXT_PATH).parent
     context_dir.mkdir(parents=True, exist_ok=True)
     
-    try:
-        safe_context = safe_json_convert(context)
-        with open(CONTEXT_PATH, "w") as f:
-            json.dump(safe_context, f, indent=2)
-    except (IOError, TypeError) as e:
-        print(f"Error writing context file: {e}")
+    safe_context = safe_json_convert(context)
+    with open(CONTEXT_PATH, "w") as f:
+        json.dump(safe_context, f, indent=2, default=str)
 
 def log_step(context: Dict[str, Any], agent_name: str, message: str) -> None:
     """
