@@ -1,27 +1,22 @@
 version: "3.9"
 
 services:
-  pipeline:
+  app:
     build: .
     image: datascienceagent:latest
-    env_file:
-      - .env
+    env_file: .env
     environment:
       - MPLBACKEND=Agg
       - TRANSFORMERS_CACHE=/cache/huggingface
       - HF_HOME=/cache/huggingface
+    ports:
+      - "8501:8501"
     volumes:
-      # Persist outputs across runs
       - ./data:/app/data
       - ./output:/app/output
       - ./context:/app/context
       - ./logs:/app/logs
-      # Cache HuggingFace model downloads (avoid re-downloading on each run)
       - hf_cache:/cache/huggingface
-    # Override CMD to pass your research question:
-    # docker compose run pipeline --research-question "What predicts house prices?"
-    command: ["--help"]
 
 volumes:
   hf_cache:
-    driver: local
