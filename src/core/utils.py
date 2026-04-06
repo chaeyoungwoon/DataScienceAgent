@@ -5,7 +5,8 @@ Shared utilities for the AI Research Pipeline.
 import math
 import numpy as np
 import pandas as pd
-from typing import Any
+from pathlib import Path
+from typing import Any, Optional
 
 
 def safe_json_convert(obj: Any) -> Any:
@@ -37,6 +38,35 @@ def safe_json_convert(obj: Any) -> Any:
         return bool(obj)
     else:
         return obj
+
+
+def safe_read_csv(file_path, **kwargs) -> Optional[pd.DataFrame]:
+    """
+    Read a CSV file with automatic encoding detection.
+    Tries UTF-8, then latin-1, then cp1252 before failing.
+    Also handles tab-separated files and auto-detection.
+    """
+    path = Path(file_path)
+    sep = kwargs.pop('sep', ',')
+    encodings = ['utf-8', 'latin-1', 'cp1252', 'utf-8-sig']
+
+    # For TSV files
+    if path.suffix.lower() in ('.tsv', '.txt') and sep == ',':
+        sep = '\t'
+
+    for enc in encodings:
+        try:
+            return pd.read_csv(path, encoding=enc, sep=sep, **kwargs)
+        except UnicodeDecodeError:
+            continue
+        except Exception:
+            break
+
+    # Last resort: auto-detect separator
+    try:
+        return pd.read_csv(path, encoding='latin-1', sep=None, engine='python', **kwargs)
+    except Exception:
+        return None
 
 
 def find_processed_file(file_path: str, processed_file_paths: list) -> str | None:

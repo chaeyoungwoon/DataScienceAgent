@@ -20,7 +20,7 @@ from src.core.context_manager import (
     read_context, write_context, log_step,
     update_context_chain, get_context_chain_data
 )
-from src.core.utils import safe_json_convert
+from src.core.utils import safe_json_convert, safe_read_csv
 
 class StatisticalAnalysisAgent:
     """
@@ -150,7 +150,9 @@ class StatisticalAnalysisAgent:
             Dict containing analysis results
         """
         # Load data
-        data = pd.read_csv(file_path)
+        data = safe_read_csv(file_path)
+        if data is None:
+            raise ValueError(f"Could not read CSV file (tried multiple encodings): {file_path}")
         self.logger.info(f"Analyzing file: {file_path} with {len(data)} rows and {len(data.columns)} columns")
         
         # Perform correlation analysis

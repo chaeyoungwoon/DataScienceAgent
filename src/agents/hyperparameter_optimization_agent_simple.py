@@ -23,7 +23,7 @@ from src.core.context_manager import (
     read_context, write_context, log_step,
     update_context_chain, get_context_chain_data
 )
-from src.core.utils import safe_json_convert, find_processed_file
+from src.core.utils import safe_json_convert, safe_read_csv, find_processed_file
 
 class HyperparameterOptimizationAgent:
     """
@@ -155,7 +155,9 @@ class HyperparameterOptimizationAgent:
             Dict containing optimization results
         """
         # Load data
-        data = pd.read_csv(data_file)
+        data = safe_read_csv(data_file)
+        if data is None:
+            raise ValueError(f"Could not read CSV file (tried multiple encodings): {data_file}")
         self.logger.info(f"Optimizing model for file: {data_file}")
         
         # Prepare data

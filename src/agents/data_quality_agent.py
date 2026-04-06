@@ -19,7 +19,7 @@ from src.core.context_manager import (
     read_context, write_context, log_step,
     update_context_chain, get_context_chain_data
 )
-from src.core.utils import safe_json_convert
+from src.core.utils import safe_json_convert, safe_read_csv
 
 class DataQualityAgent:
     """
@@ -180,9 +180,12 @@ class DataQualityAgent:
         """
         try:
             file_ext = file_path.suffix.lower()
-            
+
             if file_ext == '.csv':
-                return pd.read_csv(file_path)
+                df = safe_read_csv(file_path)
+                if df is None:
+                    raise ValueError(f"Could not parse CSV (tried multiple encodings): {file_path}")
+                return df
             elif file_ext == '.json':
                 return pd.read_json(file_path)
             elif file_ext in ['.xlsx', '.xls']:
@@ -190,11 +193,16 @@ class DataQualityAgent:
             elif file_ext == '.parquet':
                 return pd.read_parquet(file_path)
             elif file_ext in ['.txt', '.tsv']:
-                return pd.read_csv(file_path, sep='\t')
+                df = safe_read_csv(file_path, sep='\t')
+                if df is None:
+                    raise ValueError(f"Could not parse TSV: {file_path}")
+                return df
             else:
-                # Try to read as CSV with different separators
-                return pd.read_csv(file_path, sep=None, engine='python')
-                
+                df = safe_read_csv(file_path)
+                if df is None:
+                    raise ValueError(f"Could not parse file: {file_path}")
+                return df
+
         except Exception as e:
             self.logger.warning(f"Failed to load file {file_path}: {e}")
             return None

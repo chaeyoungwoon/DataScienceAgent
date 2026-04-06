@@ -20,7 +20,7 @@ from src.core.context_manager import (
     read_context, write_context, log_step,
     update_context_chain, get_context_chain_data
 )
-from src.core.utils import safe_json_convert
+from src.core.utils import safe_json_convert, safe_read_csv
 
 class DocumentationAgent:
     """
@@ -191,7 +191,10 @@ class DocumentationAgent:
             file_ext = full_path.suffix.lower()
             
             if file_ext == '.csv':
-                return pd.read_csv(full_path)
+                df = safe_read_csv(full_path)
+                if df is None:
+                    raise ValueError(f"Could not parse CSV (tried multiple encodings): {full_path}")
+                return df
             elif file_ext == '.json':
                 return pd.read_json(full_path)
             elif file_ext in ['.xlsx', '.xls']:
@@ -199,8 +202,10 @@ class DocumentationAgent:
             elif file_ext == '.parquet':
                 return pd.read_parquet(full_path)
             else:
-                # Try to read as CSV with different separators
-                return pd.read_csv(full_path, sep=None, engine='python')
+                df = safe_read_csv(full_path)
+                if df is None:
+                    raise ValueError(f"Could not parse file: {full_path}")
+                return df
                 
         except Exception as e:
             self.logger.warning(f"Failed to load file {file_path}: {e}")
